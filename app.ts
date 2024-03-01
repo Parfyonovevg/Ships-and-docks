@@ -107,6 +107,7 @@ class ShipMovement {
       .to(stoppagePlaceBeforeGate, 2000)
       .onComplete(() => {
         this.ship.lookForSuitableDock();
+        gateIsFree = true; // Set gateIsFree back to true here
       })
       .start();
   }
