@@ -8,6 +8,16 @@ const app = new PIXI.Application({
 });
 document.body.appendChild(app.view as any);
 
+enum Direction {
+  Forward = 'forward',
+  Return = 'return',
+}
+
+enum Color {
+  Green = 'green',
+  Red = 'red',
+}
+
 class Dock extends PIXI.Graphics {
   constructor(public isEmpty: boolean = true) {
     super();
@@ -39,10 +49,26 @@ class Gate extends PIXI.Graphics {
 let gate = new Gate();
 gate.x = 400;
 gate.y = (app.screen.height - gate.height) / 2;
+gate.alpha = 0;
 app.stage.addChild(gate);
 
 const docks: Dock[] = [];
 let gateQueue: Ship[] = [];
+
+const lineGraphics = new PIXI.Graphics();
+
+lineGraphics.lineStyle(2, 0xffff00, 1);
+lineGraphics.moveTo(gate.x + gate.width / 2, 0);
+lineGraphics.lineTo(gate.x + gate.width / 2, gate.y);
+
+lineGraphics.moveTo(gate.x + gate.width / 2, gate.y + gate.height);
+lineGraphics.lineTo(gate.x + gate.width / 2, app.screen.height);
+
+app.stage.addChild(lineGraphics);
+
+const GATE_POSITION = { x: gate.x, y: gate.y };
+const OPERATION_DELAY = 5000;
+const SHIP_CREATION_INTERVAL = 2000;
 
 let gateIsFree: boolean = true;
 
@@ -53,17 +79,141 @@ for (let i = 0; i < 4; i++) {
   app.stage.addChild(dock);
 }
 
-class Ship extends PIXI.Graphics {
-  static gatePosition = { x: gate.x, y: gate.y };
-  direction: 'forward' | 'return';
-  color: string;
-  targetDock: Dock | null;
+class ShipMovement {
+  constructor(private ship: Ship) {}
 
-  constructor(direction: 'forward' | 'return', color: string) {
+  moveToQueue() {
+    const redQueueLength = gateQueue.filter(
+      (ship) => ship.color === 'red'
+    ).length;
+    const greenQueueLength = gateQueue.filter(
+      (ship) => ship.color === 'green'
+    ).length;
+    let stoppagePlaceBeforeGate = {
+      x:
+        this.ship.color === 'red'
+          ? Ship.gatePosition.x + 100 + redQueueLength * (this.ship.width + 5)
+          : Ship.gatePosition.x +
+            100 +
+            greenQueueLength * (this.ship.width + 5),
+
+      y:
+        this.ship.color === 'red'
+          ? Ship.gatePosition.y - 50
+          : Ship.gatePosition.y + 200,
+    };
+
+    const tweenToStoppagePlaceBeforeGate = new TWEEN.Tween(this.ship)
+      .to(stoppagePlaceBeforeGate, 2000)
+      .onComplete(() => {
+        this.ship.lookForSuitableDock();
+      })
+      .start();
+  }
+
+  lookForSuitableDock() {
+    let suitableDock = this.findSuitableDock();
+
+    if (suitableDock) {
+      this.assignDock(suitableDock);
+    } else {
+      let dockCheckInterval = setInterval(() => {
+        suitableDock = this.findSuitableDock();
+
+        if (suitableDock) {
+          this.assignDock(suitableDock);
+          clearInterval(dockCheckInterval);
+        }
+      }, 0);
+    }
+  }
+
+  private findSuitableDock() {
+    return docks.find(
+      (dock) =>
+        (this.ship.color === Color.Green ? !dock.isEmpty : dock.isEmpty) &&
+        dock.targetedBy === null
+    );
+  }
+
+  private assignDock(dock: Dock) {
+    dock.targetedBy = this.ship;
+    this.ship.targetDock = dock;
+    this.ship.startJourneyToDock();
+  }
+
+  moveShipThroughGate() {
+    const stoppagePlaceAfterGate =
+      this.ship.direction === 'forward'
+        ? { x: gate.x - 100, y: gate.y + 50 }
+        : { x: gate.x + 100, y: gate.y + 50 };
+
+    let tweenThroughGateToStoppagePlaceAfterGate = new TWEEN.Tween(this.ship)
+      .to(stoppagePlaceAfterGate, 1000)
+      .onComplete(() => {
+        this.ship.moveShipToDestination();
+        gateIsFree = true;
+        updateQueuePositions(this.ship.color); // update the positions of the ships in the queue of the same color
+      })
+      .start();
+    gateQueue = gateQueue.filter((ship) => ship !== this.ship);
+  }
+
+  moveShipToDestination() {
+    let tweenToDock = new TWEEN.Tween(this.ship)
+      .to(
+        this.ship.targetDock && this.ship.direction === 'forward'
+          ? {
+              x: this.ship.targetDock.width,
+              y:
+                this.ship.targetDock.y +
+                this.ship.targetDock.height / 2 -
+                this.ship.height / 2,
+            }
+          : { x: 900 },
+        2000
+      )
+      .onComplete(() => {
+        if (this.ship.targetDock && this.ship.direction === 'forward') {
+          this.ship.startOperationWithCargo();
+        } else {
+          this.ship.destroy();
+        }
+      })
+      .start();
+  }
+
+  startJourneyHome() {
+    let tweenToGate = new TWEEN.Tween(this.ship)
+      .to({ x: Ship.gatePosition.x - 100, y: Ship.gatePosition.y }, 2000)
+      .onComplete(() => {
+        let gateCheckInterval = setInterval(() => {
+          if (gateIsFree) {
+            console.log('return');
+            this.ship.moveShipThroughGate();
+            gateIsFree = false;
+            clearInterval(gateCheckInterval);
+          }
+        }, 0);
+      })
+      .start();
+  }
+}
+
+class Ship extends PIXI.Graphics {
+  static gatePosition = GATE_POSITION;
+  private movement: ShipMovement;
+
+  direction: Direction;
+  color: Color;
+  targetDock: Dock | null = null;
+
+  constructor(direction: Direction, color: Color) {
     super();
     this.direction = direction;
     this.color = color;
-    this.targetDock = null;
+    this.movement = new ShipMovement(this);
+
     if (color === 'green') {
       this.lineStyle(2, this.color, 1);
     } else {
@@ -76,69 +226,11 @@ class Ship extends PIXI.Graphics {
     gateQueue.push(this);
   }
   moveToQueue() {
-    const redQueueLength = gateQueue.filter(
-      (ship) => ship.color === 'red'
-    ).length;
-    const greenQueueLength = gateQueue.filter(
-      (ship) => ship.color === 'green'
-    ).length;
-    let stoppagePlaceBeforeGate = {
-      x:
-        this.color === 'red'
-          ? Ship.gatePosition.x + 100 + redQueueLength * (this.width + 5)
-          : Ship.gatePosition.x + 100 + greenQueueLength * (this.width + 5),
-
-      y:
-        this.color === 'red'
-          ? Ship.gatePosition.y - 50
-          : Ship.gatePosition.y + 200,
-    };
-
-    const tweenToStoppagePlaceBeforeGate = new TWEEN.Tween(this)
-      .to(stoppagePlaceBeforeGate, 2000)
-      .onComplete(() => {
-        this.lookForSuitableDock();
-      })
-      .start();
+    this.movement.moveToQueue();
   }
 
   lookForSuitableDock() {
-    let suitableDock;
-
-    if (this.color === 'green') {
-      suitableDock = docks.find(
-        (dock) => !dock.isEmpty && dock.targetedBy === null
-      );
-    } else {
-      suitableDock = docks.find(
-        (dock) => dock.isEmpty && dock.targetedBy === null
-      );
-    }
-
-    if (suitableDock) {
-      suitableDock.targetedBy = this;
-      this.targetDock = suitableDock;
-      this.startJourneyToDock();
-    } else {
-      let dockCheckInterval = setInterval(() => {
-        if (this.color === 'green') {
-          suitableDock = docks.find(
-            (dock) => !dock.isEmpty && dock.targetedBy === null
-          );
-        } else {
-          suitableDock = docks.find(
-            (dock) => dock.isEmpty && dock.targetedBy === null
-          );
-        }
-
-        if (suitableDock) {
-          suitableDock.targetedBy = this;
-          this.targetDock = suitableDock;
-          clearInterval(dockCheckInterval);
-          this.startJourneyToDock();
-        }
-      }, 0);
-    }
+    this.movement.lookForSuitableDock();
   }
   startJourneyToDock() {
     let gateCheckInterval = setInterval(() => {
@@ -151,45 +243,11 @@ class Ship extends PIXI.Graphics {
   }
 
   moveShipThroughGate() {
-    const stoppagePlaceAfterGate =
-      this.direction === 'forward'
-        ? { x: gate.x - 100, y: gate.y + 50 }
-        : { x: gate.x + 100, y: gate.y + 50 };
-
-    let tweenThroughGateToStoppagePlaceAfterGate = new TWEEN.Tween(this)
-      .to(stoppagePlaceAfterGate, 1000)
-      .onComplete(() => {
-        this.moveShipToDestination();
-        gateIsFree = true;
-      })
-      .start();
-    gateQueue = gateQueue.filter((ship) => ship !== this);
+    this.movement.moveShipThroughGate();
   }
 
   moveShipToDestination() {
-    let tweenToDock = new TWEEN.Tween(this)
-      .to(
-        this.targetDock && this.direction === 'forward'
-          ? {
-              x: this.targetDock.width,
-              y:
-                this.targetDock.y +
-                this.targetDock.height / 2 -
-                this.height / 2,
-            }
-          : { x: 900 },
-        2000
-      )
-      .onComplete(() => {
-        if (this.targetDock && this.direction === 'forward') {
-          console.log('moveShipToDock');
-          this.startOperationWithCargo();
-        } else {
-          console.log('destroy');
-          this.destroy();
-        }
-      })
-      .start();
+    this.movement.moveShipToDestination();
   }
 
   startOperationWithCargo() {
@@ -201,7 +259,7 @@ class Ship extends PIXI.Graphics {
       }
       this.changeCargo();
       this.startJourneyHome();
-    }, 5000);
+    }, OPERATION_DELAY);
   }
   changeCargo() {
     this.clear();
@@ -210,24 +268,32 @@ class Ship extends PIXI.Graphics {
     } else {
       this.lineStyle(2, this.color, 1);
     }
-    this.direction = 'return';
+    this.direction = Direction.Return;
     this.drawRect(0, 0, 100, 50);
   }
   startJourneyHome() {
-    let tweenToGate = new TWEEN.Tween(this)
-      .to({ x: Ship.gatePosition.x - 100, y: Ship.gatePosition.y }, 2000)
-      .onComplete(() => {
-        let gateCheckInterval = setInterval(() => {
-          if (gateIsFree) {
-            console.log('return');
-            this.moveShipThroughGate();
-            gateIsFree = false;
-            clearInterval(gateCheckInterval);
-          }
-        }, 0);
-      })
-      .start();
+    this.movement.startJourneyHome();
   }
+}
+
+function updateQueuePositions(color: Color) {
+  gateQueue
+    .filter((ship) => ship.color === color)
+    .forEach((ship, index) => {
+      const stoppagePlaceBeforeGate = {
+        x:
+          ship.color === 'red'
+            ? Ship.gatePosition.x + 100 + index * (ship.width + 5)
+            : Ship.gatePosition.x + 100 + index * (ship.width + 5),
+
+        y:
+          ship.color === 'red'
+            ? Ship.gatePosition.y - 50
+            : Ship.gatePosition.y + 200,
+      };
+
+      new TWEEN.Tween(ship).to(stoppagePlaceBeforeGate, 2000).start();
+    });
 }
 
 const createShip = () => {
@@ -241,20 +307,20 @@ const createShip = () => {
   if (redQueueLength === 3 && greenQueueLength === 3) return;
 
   if (redQueueLength < 3 && greenQueueLength < 3) {
-    const color = Math.random() < 0.5 ? 'green' : 'red';
-    const ship = new Ship('forward', color);
+    const color = Math.random() < 0.5 ? Color.Green : Color.Red;
+    const ship = new Ship(Direction.Forward, color);
     app.stage.addChild(ship);
   } else if (redQueueLength === 3 && greenQueueLength < 3) {
-    const ship = new Ship('forward', 'green');
+    const ship = new Ship(Direction.Forward, Color.Green);
     app.stage.addChild(ship);
   } else if (redQueueLength < 3 && greenQueueLength === 3) {
-    const ship = new Ship('forward', 'red');
+    const ship = new Ship(Direction.Forward, Color.Red);
     app.stage.addChild(ship);
   }
 };
 
 createShip();
-setInterval(createShip, 8000);
+setInterval(createShip, SHIP_CREATION_INTERVAL);
 app.ticker.add(() => {
   TWEEN.update();
 });
