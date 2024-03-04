@@ -311,17 +311,17 @@ const createShip = () => {
 
   if (redQueueLength === 3 && greenQueueLength === 3) return;
 
+  let color;
   if (redQueueLength < 3 && greenQueueLength < 3) {
-    const color = Math.random() < 0.5 ? Color.Green : Color.Red;
-    const ship = new Ship(Direction.Forward, color);
-    app.stage.addChild(ship);
-  } else if (redQueueLength === 3 && greenQueueLength < 3) {
-    const ship = new Ship(Direction.Forward, Color.Green);
-    app.stage.addChild(ship);
-  } else if (redQueueLength < 3 && greenQueueLength === 3) {
-    const ship = new Ship(Direction.Forward, Color.Red);
-    app.stage.addChild(ship);
+    color = Math.random() < 0.5 ? Color.Green : Color.Red;
+  } else if (redQueueLength === 3) {
+    color = Color.Green;
+  } else {
+    color = Color.Red;
   }
+
+  const ship = new Ship(Direction.Forward, color);
+  app.stage.addChild(ship);
 };
 
 createShip();
