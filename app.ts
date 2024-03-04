@@ -8,6 +8,16 @@ const app = new PIXI.Application({
 });
 document.body.appendChild(app.view as any);
 
+const GATE = {
+  x: 400,
+  y: (app.screen.height - 200) / 2,
+  width: 100,
+  height: 200,
+};
+
+const OPERATION_DELAY = 5000;
+const SHIP_CREATION_INTERVAL = 2000;
+
 enum Direction {
   Forward = 'forward',
   Return = 'return',
@@ -17,6 +27,22 @@ enum Color {
   Green = 'green',
   Red = 'red',
 }
+
+const docks: Dock[] = [];
+let gateQueue: Ship[] = [];
+
+const lineGraphics = new PIXI.Graphics();
+
+lineGraphics.lineStyle(2, 0xffff00, 1);
+lineGraphics.moveTo(GATE.x + GATE.width / 2, 0);
+lineGraphics.lineTo(GATE.x + GATE.width / 2, GATE.y);
+
+lineGraphics.moveTo(GATE.x + GATE.width / 2, GATE.y + GATE.height);
+lineGraphics.lineTo(GATE.x + GATE.width / 2, app.screen.height);
+
+app.stage.addChild(lineGraphics);
+
+let gateIsFree: boolean = true;
 
 class Dock extends PIXI.Graphics {
   constructor(public isEmpty: boolean = true) {
@@ -37,43 +63,8 @@ class Dock extends PIXI.Graphics {
   targetedBy: Ship | null = null;
 }
 
-class Gate extends PIXI.Graphics {
-  constructor() {
-    super();
-    this.beginFill(0x000000); // black color
-    this.drawRect(0, 0, 100, 200); // draw a rectangle as the gate
-    this.endFill();
-  }
-}
-
-let gate = new Gate();
-gate.x = 400;
-gate.y = (app.screen.height - gate.height) / 2;
-gate.alpha = 0;
-app.stage.addChild(gate);
-
-const docks: Dock[] = [];
-let gateQueue: Ship[] = [];
-
-const lineGraphics = new PIXI.Graphics();
-
-lineGraphics.lineStyle(2, 0xffff00, 1);
-lineGraphics.moveTo(gate.x + gate.width / 2, 0);
-lineGraphics.lineTo(gate.x + gate.width / 2, gate.y);
-
-lineGraphics.moveTo(gate.x + gate.width / 2, gate.y + gate.height);
-lineGraphics.lineTo(gate.x + gate.width / 2, app.screen.height);
-
-app.stage.addChild(lineGraphics);
-
-const GATE_POSITION = { x: gate.x, y: gate.y };
-const OPERATION_DELAY = 5000;
-const SHIP_CREATION_INTERVAL = 2000;
-
-let gateIsFree: boolean = true;
-
 for (let i = 0; i < 4; i++) {
-  let dock = new Dock();
+  const dock = new Dock();
   dock.y = i * (200 + 20);
   docks.push(dock);
   app.stage.addChild(dock);
@@ -89,7 +80,7 @@ class ShipMovement {
     const greenQueueLength = gateQueue.filter(
       (ship) => ship.color === 'green'
     ).length;
-    let stoppagePlaceBeforeGate = {
+    const stoppagePlaceBeforeGate = {
       x:
         this.ship.color === 'red'
           ? Ship.gatePosition.x + 100 + redQueueLength * (this.ship.width + 5)
@@ -107,7 +98,15 @@ class ShipMovement {
       .to(stoppagePlaceBeforeGate, 2000)
       .onComplete(() => {
         this.ship.lookForSuitableDock();
-        gateIsFree = true; // Set gateIsFree back to true here
+        if (!this.ship.targetDock) {
+          const dockCheckInterval = setInterval(() => {
+            this.ship.lookForSuitableDock();
+            if (this.ship.targetDock) {
+              clearInterval(dockCheckInterval);
+            }
+          }, 1000);
+        }
+        gateIsFree = true; 
       })
       .start();
   }
@@ -118,7 +117,7 @@ class ShipMovement {
     if (suitableDock) {
       this.assignDock(suitableDock);
     } else {
-      let dockCheckInterval = setInterval(() => {
+      const dockCheckInterval = setInterval(() => {
         suitableDock = this.findSuitableDock();
 
         if (suitableDock) {
@@ -138,30 +137,36 @@ class ShipMovement {
   }
 
   private assignDock(dock: Dock) {
-    dock.targetedBy = this.ship;
-    this.ship.targetDock = dock;
-    this.ship.startJourneyToDock();
+    const firstInQueue = gateQueue.filter(
+      (ship) => ship.color === this.ship.color
+    )[0];
+
+    if (firstInQueue === this.ship) {
+      dock.targetedBy = this.ship;
+      this.ship.targetDock = dock;
+      this.ship.startJourneyToDock();
+      gateQueue = gateQueue.filter((ship) => ship !== this.ship);
+    }
   }
 
   moveShipThroughGate() {
     const stoppagePlaceAfterGate =
       this.ship.direction === 'forward'
-        ? { x: gate.x - 100, y: gate.y + 50 }
-        : { x: gate.x + 100, y: gate.y + 50 };
+        ? { x: GATE.x - 100, y: GATE.y + 50 }
+        : { x: GATE.x + 100, y: GATE.y + 50 };
 
-    let tweenThroughGateToStoppagePlaceAfterGate = new TWEEN.Tween(this.ship)
+    const tweenThroughGateToStoppagePlaceAfterGate = new TWEEN.Tween(this.ship)
       .to(stoppagePlaceAfterGate, 1000)
       .onComplete(() => {
         this.ship.moveShipToDestination();
         gateIsFree = true;
-        updateQueuePositions(this.ship.color); // update the positions of the ships in the queue of the same color
+        updateQueuePositions(this.ship.color);
       })
       .start();
-    gateQueue = gateQueue.filter((ship) => ship !== this.ship);
   }
 
   moveShipToDestination() {
-    let tweenToDock = new TWEEN.Tween(this.ship)
+    const tweenToDock = new TWEEN.Tween(this.ship)
       .to(
         this.ship.targetDock && this.ship.direction === 'forward'
           ? {
@@ -185,10 +190,10 @@ class ShipMovement {
   }
 
   startJourneyHome() {
-    let tweenToGate = new TWEEN.Tween(this.ship)
+    const tweenToGate = new TWEEN.Tween(this.ship)
       .to({ x: Ship.gatePosition.x - 100, y: Ship.gatePosition.y }, 2000)
       .onComplete(() => {
-        let gateCheckInterval = setInterval(() => {
+        const gateCheckInterval = setInterval(() => {
           if (gateIsFree) {
             console.log('return');
             this.ship.moveShipThroughGate();
@@ -202,7 +207,7 @@ class ShipMovement {
 }
 
 class Ship extends PIXI.Graphics {
-  static gatePosition = GATE_POSITION;
+  static gatePosition = GATE;
   private movement: ShipMovement;
 
   direction: Direction;
@@ -234,7 +239,7 @@ class Ship extends PIXI.Graphics {
     this.movement.lookForSuitableDock();
   }
   startJourneyToDock() {
-    let gateCheckInterval = setInterval(() => {
+    const gateCheckInterval = setInterval(() => {
       if (gateIsFree) {
         this.moveShipThroughGate();
         gateIsFree = false;
