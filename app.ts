@@ -16,7 +16,7 @@ const GATE = {
 };
 
 const OPERATION_DELAY = 5000;
-const SHIP_CREATION_INTERVAL = 2000;
+const SHIP_CREATION_INTERVAL = 8000;
 
 enum Direction {
   Forward = 'forward',
