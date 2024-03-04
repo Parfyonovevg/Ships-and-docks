@@ -53,9 +53,9 @@ class Dock extends PIXI.Graphics {
   draw() {
     this.clear();
     if (this.isEmpty) {
-      this.lineStyle(2, 0xffff00, 1); // yellow border
+      this.lineStyle(2, 0xffff00, 1);
     } else {
-      this.beginFill(0xffff00); // yellow color
+      this.beginFill(0xffff00);
     }
     this.drawRect(0, 0, 100, 200);
   }
@@ -106,7 +106,6 @@ class ShipMovement {
             }
           }, 1000);
         }
-        gateIsFree = true; 
       })
       .start();
   }
@@ -145,11 +144,11 @@ class ShipMovement {
       dock.targetedBy = this.ship;
       this.ship.targetDock = dock;
       this.ship.startJourneyToDock();
-      gateQueue = gateQueue.filter((ship) => ship !== this.ship);
     }
   }
 
   moveShipThroughGate() {
+    gateQueue = gateQueue.filter((ship) => ship !== this.ship);
     const stoppagePlaceAfterGate =
       this.ship.direction === 'forward'
         ? { x: GATE.x - 100, y: GATE.y + 50 }
@@ -191,7 +190,7 @@ class ShipMovement {
 
   startJourneyHome() {
     const tweenToGate = new TWEEN.Tween(this.ship)
-      .to({ x: Ship.gatePosition.x - 100, y: Ship.gatePosition.y }, 2000)
+      .to({ x: Ship.gatePosition.x - 100, y: Ship.gatePosition.y - 50 }, 2000)
       .onComplete(() => {
         const gateCheckInterval = setInterval(() => {
           if (gateIsFree) {
